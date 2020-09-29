@@ -39,6 +39,12 @@
 #include "iordef.h"
 #include "aiori.h"
 
+#include <mpi.h>
+
+#ifndef MPI_FILE_NULL
+#   include <mpio.h>
+#endif /* not MPI_FILE_NULL */
+
 #define ISPOWEROFTWO(x) ((x != 0) && !(x & (x - 1)))
 /******************** DATA Packet Type ***************************************/
 /* Holds the types of data packets: generic, offset, timestamp, incompressible */
@@ -162,9 +168,7 @@ typedef struct
     int         hdfs_block_size;     /* internal blk-size. (0 gets default) */
 
     char*       URI;                 /* "path" to target object */
-    size_t      part_number;         /* multi-part upload increment (PER-RANK!) */
-    char*       UploadId; /* key for multi-part-uploads */
-
+    
     /* RADOS variables */
     rados_t rados_cluster;           /* RADOS cluster handle */
     rados_ioctx_t rados_ioctx;       /* I/O context for our pool in the RADOS cluster */

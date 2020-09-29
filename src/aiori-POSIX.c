@@ -55,6 +55,8 @@
 #include "iordef.h"
 #include "utilities.h"
 
+#include "aiori-POSIX.h"
+
 #ifndef   open64                /* necessary for TRU64 -- */
 #  define open64  open            /* unlikely, but may pose */
 #endif  /* not open64 */                        /* conflicting prototypes */
@@ -70,32 +72,6 @@
 /**************************** P R O T O T Y P E S *****************************/
 static IOR_offset_t POSIX_Xfer(int, aiori_fd_t *, IOR_size_t *,
                                IOR_offset_t, IOR_offset_t, aiori_mod_opt_t *);
-static void POSIX_Fsync(aiori_fd_t *, aiori_mod_opt_t *);
-static void POSIX_Sync(aiori_mod_opt_t * );
-static int POSIX_check_params(aiori_mod_opt_t * options);
-
-/************************** O P T I O N S *****************************/
-typedef struct{
-  /* in case of a change, please update depending MMAP module too */
-  int direct_io;
-
-  /* Lustre variables */
-  int lustre_set_striping;         /* flag that we need to set lustre striping */
-  int lustre_stripe_count;
-  int lustre_stripe_size;
-  int lustre_start_ost;
-  int lustre_ignore_locks;
-
-  /* gpfs variables */
-  int gpfs_hint_access;          /* use gpfs "access range" hint */
-  int gpfs_release_token;        /* immediately release GPFS tokens after
-                                    creating or opening a file */
-  /* beegfs variables */
-  int beegfs_numTargets;           /* number storage targets to use */
-  int beegfs_chunkSize;            /* srtipe pattern for new files */
-
-} posix_options_t;
-
 
 option_help * POSIX_options(aiori_mod_opt_t ** init_backend_options, aiori_mod_opt_t * init_values){
   posix_options_t * o = malloc(sizeof(posix_options_t));
@@ -149,7 +125,7 @@ ior_aiori_t posix_aiori = {
         .xfer = POSIX_Xfer,
         .close = POSIX_Close,
         .delete = POSIX_Delete,
-        .xfer_hints = aiori_posix_xfer_hints,
+        .xfer_hints = POSIX_xfer_hints,
         .get_version = aiori_get_version,
         .fsync = POSIX_Fsync,
         .get_file_size = POSIX_GetFileSize,
@@ -168,11 +144,11 @@ ior_aiori_t posix_aiori = {
 
 static aiori_xfer_hint_t * hints = NULL;
 
-void aiori_posix_xfer_hints(aiori_xfer_hint_t * params){
+void POSIX_xfer_hints(aiori_xfer_hint_t * params){
   hints = params;
 }
 
-static int POSIX_check_params(aiori_mod_opt_t * param){
+int POSIX_check_params(aiori_mod_opt_t * param){
   posix_options_t * o = (posix_options_t*) param;
   if (o->beegfs_chunkSize != -1 && (!ISPOWEROFTWO(o->beegfs_chunkSize) || o->beegfs_chunkSize < (1<<16)))
         ERR("beegfsChunkSize must be a power of two and >64k");
@@ -203,7 +179,7 @@ void gpfs_free_all_locks(int fd)
                 EWARNF("gpfs_fcntl(%d, ...) release all locks hint failed.", fd);
         }
 }
-void gpfs_access_start(int fd, IOR_offset_t length, int access)
+void gpfs_access_start(int fd, IOR_offset_t length, IOR_offset_t offset, int access)
 {
         int rc;
         struct {
@@ -217,7 +193,7 @@ void gpfs_access_start(int fd, IOR_offset_t length, int access)
 
         take_locks.access.structLen = sizeof(take_locks.access);
         take_locks.access.structType = GPFS_ACCESS_RANGE;
-        take_locks.access.start = hints->offset;
+        take_locks.access.start = offset;
         take_locks.access.length = length;
         take_locks.access.isWrite = (access == WRITE);
 
@@ -227,7 +203,7 @@ void gpfs_access_start(int fd, IOR_offset_t length, int access)
         }
 }
 
-void gpfs_access_end(int fd, IOR_offset_t length, int access)
+void gpfs_access_end(int fd, IOR_offset_t length, IOR_offset_t offset,  int access)
 {
         int rc;
         struct {
@@ -242,7 +218,7 @@ void gpfs_access_end(int fd, IOR_offset_t length, int access)
 
         free_locks.free.structLen = sizeof(free_locks.free);
         free_locks.free.structType = GPFS_FREE_RANGE;
-        free_locks.free.start = hints->offset;
+        free_locks.free.start = offset;
         free_locks.free.length = length;
 
         rc = gpfs_fcntl(fd, &free_locks);
@@ -563,7 +539,7 @@ static IOR_offset_t POSIX_Xfer(int access, aiori_fd_t *file, IOR_size_t * buffer
 
 #ifdef HAVE_GPFS_FCNTL_H
         if (o->gpfs_hint_access) {
-                gpfs_access_start(fd, length, access);
+          gpfs_access_start(fd, length, offset, access);
         }
 #endif
 
@@ -624,23 +600,20 @@ static IOR_offset_t POSIX_Xfer(int access, aiori_fd_t *file, IOR_size_t * buffer
         }
 #ifdef HAVE_GPFS_FCNTL_H
         if (o->gpfs_hint_access) {
-                gpfs_access_end(fd, length, param, access);
+            gpfs_access_end(fd, length, offset, access);
         }
 #endif
         return (length);
 }
 
-/*
- * Perform fsync().
- */
-static void POSIX_Fsync(aiori_fd_t *fd, aiori_mod_opt_t * param)
+void POSIX_Fsync(aiori_fd_t *fd, aiori_mod_opt_t * param)
 {
         if (fsync(*(int *)fd) != 0)
                 EWARNF("fsync(%d) failed", *(int *)fd);
 }
 
 
-static void POSIX_Sync(aiori_mod_opt_t * param)
+void POSIX_Sync(aiori_mod_opt_t * param)
 {
   int ret = system("sync");
   if (ret != 0){
@@ -676,8 +649,7 @@ void POSIX_Delete(char *testFileName, aiori_mod_opt_t * param)
 /*
  * Use POSIX stat() to return aggregate file size.
  */
-IOR_offset_t POSIX_GetFileSize(aiori_mod_opt_t * test, MPI_Comm testComm,
-                                      char *testFileName)
+IOR_offset_t POSIX_GetFileSize(aiori_mod_opt_t * test, char *testFileName)
 {
         if(hints->dryRun)
           return 0;
@@ -688,27 +660,6 @@ IOR_offset_t POSIX_GetFileSize(aiori_mod_opt_t * test, MPI_Comm testComm,
                 ERRF("stat(\"%s\", ...) failed", testFileName);
         }
         aggFileSizeFromStat = stat_buf.st_size;
-
-        if (hints->filePerProc == TRUE) {
-                MPI_CHECK(MPI_Allreduce(&aggFileSizeFromStat, &tmpSum, 1,
-                                        MPI_LONG_LONG_INT, MPI_SUM, testComm),
-                          "cannot total data moved");
-                aggFileSizeFromStat = tmpSum;
-        } else {
-                MPI_CHECK(MPI_Allreduce(&aggFileSizeFromStat, &tmpMin, 1,
-                                        MPI_LONG_LONG_INT, MPI_MIN, testComm),
-                          "cannot total data moved");
-                MPI_CHECK(MPI_Allreduce(&aggFileSizeFromStat, &tmpMax, 1,
-                                        MPI_LONG_LONG_INT, MPI_MAX, testComm),
-                          "cannot total data moved");
-                if (tmpMin != tmpMax) {
-                        if (rank == 0) {
-                                WARN("inconsistent file size by different tasks");
-                        }
-                        /* incorrect, but now consistent across tasks */
-                        aggFileSizeFromStat = tmpMin;
-                }
-        }
 
         return (aggFileSizeFromStat);
 }

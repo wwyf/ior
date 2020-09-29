@@ -5,7 +5,7 @@ if USE_CAPS
 bin_PROGRAMS += IOR MDTEST
 endif
 
-noinst_HEADERS = ior.h utilities.h parse_options.h aiori.h iordef.h ior-internal.h option.h mdtest.h aiori-debug.h
+noinst_HEADERS = ior.h utilities.h parse_options.h aiori.h iordef.h ior-internal.h option.h mdtest.h aiori-debug.h aiori-POSIX.h
 
 lib_LIBRARIES = libaiori.a
 libaiori_a_SOURCES = ior.c mdtest.c utilities.c parse_options.c ior-output.c option.c
@@ -65,6 +65,11 @@ if USE_POSIX_AIORI
 extraSOURCES += aiori-POSIX.c
 endif
 
+if USE_AIO_AIORI
+extraSOURCES += aiori-aio.c
+extraLDADD    += -laio
+endif
+
 if USE_PMDK_AIORI
 extraSOURCES += aiori-PMDK.c
 extraLDADD   += -lpmem
@@ -90,8 +95,8 @@ extraSOURCES += aiori-Gfarm.c
 extraLDADD += -lgfarm
 endif
 
-if USE_S3_AIORI
-extraSOURCES  += aiori-S3.c
+if USE_S3_4C_AIORI
+extraSOURCES  += aiori-S3-4c.c
 if AWS4C_DIR
   extraCPPFLAGS += $(AWS4C_CPPFLAGS)
   extraLDFLAGS  += $(AWS4C_LDFLAGS)
@@ -100,6 +105,12 @@ extraLDADD    += -lcurl
 extraLDADD    += -lxml2
 extraLDADD    += -laws4c
 extraLDADD    += -laws4c_extra
+extraLDADD    += -lcrypto
+endif
+
+if USE_S3_LIBS3_AIORI
+extraSOURCES  += aiori-S3-libs3.c
+extraLDADD    += -ls3
 endif
 
 if WITH_LUSTRE
@@ -128,3 +139,9 @@ MDTEST_CPPFLAGS = $(mdtest_CPPFLAGS)
 
 libaiori_a_SOURCES += $(extraSOURCES)
 libaiori_a_CPPFLAGS = $(extraCPPFLAGS)
+
+# Generate config file with build flags to allow reuse of library
+all-local: build.conf
+build.conf:
+	@echo LDFLAGS=$(LDFLAGS) $(extraLDFLAGS) $(extraLDADD) > build.conf
+	@echo CFLAGS=$(CFLAGS) $(extraCPPFLAGS) >> build.conf

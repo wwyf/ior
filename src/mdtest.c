@@ -354,8 +354,9 @@ void mdtest_verify_data(int item, char * buffer, size_t bytes){
 
   for( ; i < bytes; i++){
     if(buffer[i] != (char) (i + 1)){
-      VERBOSE(0, -1, "Error verifying byte %zu for item %d", i, item);
+      VERBOSE(5, -1, "Error verifying byte %zu for item %d", i, item);
       verification_error++;
+      break;
     }
   }
 }
@@ -849,6 +850,9 @@ void directory_test(const int iteration, const int ntasks, const char *path, ran
 
     /* create phase */
     if(create_only) {
+      progress->stone_wall_timer_seconds = stone_wall_timer_seconds;
+      progress->items_done = 0;
+      progress->start_time = GetTimeStamp();
       for (int dir_iter = 0; dir_iter < directory_loops; dir_iter ++){
         prep_testdir(iteration, dir_iter);
         if (unique_dir_per_task) {
@@ -872,6 +876,7 @@ void directory_test(const int iteration, const int ntasks, const char *path, ran
             create_remove_items(0, 1, 1, 0, temp_path, 0, progress);
         }
       }
+      progress->stone_wall_timer_seconds = 0;
     }
 
     phase_end();
@@ -1047,6 +1052,10 @@ void file_test(const int iteration, const int ntasks, const char *path, rank_pro
 
     /* create phase */
     if (create_only ) {
+      progress->stone_wall_timer_seconds = stone_wall_timer_seconds;
+      progress->items_done = 0;
+      progress->start_time = GetTimeStamp();
+
       for (int dir_iter = 0; dir_iter < directory_loops; dir_iter ++){
         prep_testdir(iteration, dir_iter);
 
@@ -1059,8 +1068,6 @@ void file_test(const int iteration, const int ntasks, const char *path, rank_pro
         } else {
             sprintf( temp_path, "%s/%s", testdir, path );
         }
-
-
 
         VERBOSE(3,-1,"file_test: create path is '%s'", temp_path );
 
@@ -1662,8 +1669,7 @@ void create_remove_directory_tree(int create,
 static void mdtest_iteration(int i, int j, MPI_Group testgroup, mdtest_results_t * summary_table){
   rank_progress_t progress_o;
   memset(& progress_o, 0 , sizeof(progress_o));
-  progress_o.start_time = GetTimeStamp();
-  progress_o.stone_wall_timer_seconds = stone_wall_timer_seconds;
+  progress_o.stone_wall_timer_seconds = 0;
   progress_o.items_per_dir = items_per_dir;
   rank_progress_t * progress = & progress_o;
 
@@ -1747,6 +1753,7 @@ static void mdtest_iteration(int i, int j, MPI_Group testgroup, mdtest_results_t
       summary_table->stonewall_last_item[8] = num_dirs_in_tree;
       VERBOSE(1,-1,"V-1: main:   Tree creation     : %14.3f sec, %14.3f ops/sec", (endCreate - startCreate), summary_table->rate[8]);
   }
+
   sprintf(unique_mk_dir, "%s.0", base_tree_name);
   sprintf(unique_chdir_dir, "%s.0", base_tree_name);
   sprintf(unique_stat_dir, "%s.0", base_tree_name);
@@ -1789,6 +1796,7 @@ static void mdtest_iteration(int i, int j, MPI_Group testgroup, mdtest_results_t
               DelaySecs(pre_delay);
           }
           VERBOSE(3,5,"will file_test on %s", unique_mk_dir);
+
           file_test(j, i, unique_mk_dir, progress);
       }
   }
@@ -1931,6 +1939,7 @@ mdtest_results_t * mdtest_run(int argc, char **argv, MPI_Comm world_com, FILE * 
     int last = 0;
     int stride = 1;
     int iterations = 1;
+    int created_root_dir = 0; // was the root directory existing or newly created
 
     verbose = 0;
     int no_barriers = 0;
@@ -1978,7 +1987,7 @@ mdtest_results_t * mdtest_run(int argc, char **argv, MPI_Comm world_com, FILE * 
       {'v', NULL,        "verbosity (each instance of option increments by one)", OPTION_FLAG, 'd', & verbose},
       {'V', NULL,        "verbosity value", OPTION_OPTIONAL_ARGUMENT, 'd', & verbose},
       {'w', NULL,        "bytes to write to each file after it is created", OPTION_OPTIONAL_ARGUMENT, 'l', & write_bytes},
-      {'W', NULL,        "number in seconds; stonewall timer, write as many seconds and ensure all processes did the same number of operations (currently only stops during create phase)", OPTION_OPTIONAL_ARGUMENT, 'd', & stone_wall_timer_seconds},
+      {'W', NULL,        "number in seconds; stonewall timer, write as many seconds and ensure all processes did the same number of operations (currently only stops during create phase and files)", OPTION_OPTIONAL_ARGUMENT, 'd', & stone_wall_timer_seconds},
       {'x', NULL,        "StoneWallingStatusFile; contains the number of iterations of the creation phase, can be used to split phases across runs", OPTION_OPTIONAL_ARGUMENT, 's', & stoneWallingStatusFile},
       {'X', "verify-read", "Verify the data read", OPTION_FLAG, 'd', & verify_read},
       {0, "verify-write", "Verify the data after a write by reading it back immediately", OPTION_FLAG, 'd', & verify_write},
@@ -2188,6 +2197,7 @@ mdtest_results_t * mdtest_run(int argc, char **argv, MPI_Comm world_com, FILE * 
         if (backend->mkdir(testdirpath, DIRMODE, backend_options) != 0) {
             FAIL("Unable to create test directory path %s", testdirpath);
         }
+        created_root_dir = 1;
     }
 
     /* display disk usage */
@@ -2292,6 +2302,10 @@ mdtest_results_t * mdtest_run(int argc, char **argv, MPI_Comm world_com, FILE * 
         if (i == 1 && stride > 1) {
             i = 0;
         }
+    }
+
+    if (created_root_dir && remove_only && backend->rmdir(testdirpath, backend_options) != 0) {
+        FAIL("Unable to remove test directory path %s", testdirpath);
     }
 
     if(verification_error){

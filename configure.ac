@@ -200,6 +200,19 @@ AS_IF([test "x$with_pmdk" != xno], [
 	[AC_MSG_ERROR([Library containing pmdk symbols not found])])
 ])
 
+# LINUX AIO support
+AC_ARG_WITH([aio],
+        [AS_HELP_STRING([--with-aio],
+           [support Linux AIO @<:@default=no@:>@])],
+        [],
+        [with_aio=no])
+AM_CONDITIONAL([USE_AIO_AIORI], [test x$with_aio = xyes])
+AS_IF([test "x$with_aio" != xno], [
+        AC_DEFINE([USE_AIO_AIORI], [], [Build AIO backend])
+        AC_CHECK_HEADERS(libaio.h,, [unset AIO])
+	AC_SEARCH_LIBS([aio],	[io_setup], [AC_MSG_ERROR([Library containing AIO symbol io_setup not found])])
+])
+
 
 # RADOS support
 AC_ARG_WITH([rados],
@@ -308,19 +321,54 @@ AM_COND_IF([AWS4C_DIR],[
 ])
 
 
-# Amazon S3 support  [see also:  --with-aws4c]
-AC_ARG_WITH([S3],
-        [AS_HELP_STRING([--with-S3],
-           [support IO with Amazon S3 backend @<:@default=no@:>@])],
+
+# Amazon S3 support using the libs3 API
+AC_ARG_WITH([S3-libs3],
+        [AS_HELP_STRING([--with-S3-libs3],
+           [support IO with Amazon libS3 @<:@default=no@:>@])],
         [],
-        [with_S3=no])
-AM_CONDITIONAL([USE_S3_AIORI], [test x$with_S3 = xyes])
-AM_COND_IF([USE_S3_AIORI],[
-        AC_DEFINE([USE_S3_AIORI], [], [Build Amazon-S3 backend AIORI])
+        [with_S3_libs3=no])
+AM_CONDITIONAL([USE_S3_LIBS3_AIORI], [test x$with_S3_libs3 = xyes])
+AM_COND_IF([USE_S3_LIBS3_AIORI],[
+        AC_DEFINE([USE_S3_LIBS3_AIORI], [], [Build Amazon-S3 backend AIORI using libs3])
 ])
 
 err=0
-AS_IF([test "x$with_S3" != xno], [
+AS_IF([test "x$with_S3_libs3" != xno], [
+            AC_MSG_NOTICE([beginning of S3-related checks])
+            ORIG_CPPFLAGS=$CPPFLAGS
+            ORIG_LDFLAGS=$LDFLAGS
+
+            AC_CHECK_HEADERS([libs3.h], [], [err=1])
+
+            # Autotools thinks searching for a library means I want it added to LIBS
+            ORIG_LIBS=$LIBS
+            AC_CHECK_LIB([s3], [S3_initialize], [], [err=1])
+            LIBS=$ORIG_LIBS
+
+            AC_MSG_NOTICE([end of S3-related checks])
+            if test "$err" == 1; then
+                AC_MSG_FAILURE([S3 support is missing.  dnl Make sure you have access to libs3.  dnl])
+            fi
+
+            # restore user's values
+            CPPFLAGS=$ORIG_CPPFLAGS
+            LDFLAGS=$ORIG_LDFLAGS
+])
+
+# Amazon S3 support  [see also:  --with-aws4c]
+AC_ARG_WITH([S3-4c],
+        [AS_HELP_STRING([--with-S3-4c],
+           [support IO with Amazon S3 backend @<:@default=no@:>@])],
+        [],
+        [with_S3_4c=no])
+AM_CONDITIONAL([USE_S3_4C_AIORI], [test x$with_S3_4c = xyes])
+AM_COND_IF([USE_S3_4C_AIORI],[
+        AC_DEFINE([USE_S3_4C_AIORI], [], [Build Amazon-S3 backend AIORI using lib4c])
+])
+
+err=0
+AS_IF([test "x$with_S3_4c" != xno], [
             AC_MSG_NOTICE([beginning of S3-related checks])
 
             # save user's values, while we use AC_CHECK_HEADERS with $AWS4C_DIR
@@ -351,6 +399,30 @@ Consider --with-aws4c=, CPPFLAGS, LDFLAGS, etc])
             CPPFLAGS=$ORIG_CPPFLAGS
             LDFLAGS=$ORIG_LDFLAGS
 ])
+
+# Check for existence of the function to detect the CPU socket ID (for multi-socket systems)
+AC_COMPILE_IFELSE(
+  [AC_LANG_SOURCE([[
+      int main(){
+      unsigned long a,d,c;
+      __asm__ volatile("rdtscp" : "=a" (a), "=d" (d), "=c" (c));
+      return 0;
+      }
+  ]])],
+  AC_DEFINE([HAVE_RDTSCP_ASM], [], [Has ASM to detect CPU socket ID]))
+
+AC_COMPILE_IFELSE(
+  [AC_LANG_SOURCE([[
+      #define _GNU_SOURCE
+      #include <unistd.h>
+      #include <sys/syscall.h>
+      unsigned long GetProcessorAndCore(int *chip, int *core){
+      	return syscall(SYS_getcpu, core, chip, NULL);
+      }
+      int main(){
+      }
+  ]])],
+  AC_DEFINE([HAVE_GETCPU_SYSCALL], [], [Has syscall to detect CPU socket ID]))
 
 
 # Enable building "IOR", in all capitals
