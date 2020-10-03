@@ -2291,6 +2291,7 @@ mdtest_results_t * mdtest_run(int argc, char **argv, MPI_Comm world_com, FILE * 
 
         for (j = 0; j < iterations; j++) {
             // keep track of the current status for stonewalling
+            printf("wyf test tail latency version !\n");
             mdtest_iteration(i, j, testgroup, & summary_table[j]);
         }
         if (print_rate_and_time){
