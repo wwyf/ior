@@ -174,6 +174,10 @@ static int count_create;
 static int count_stat;
 static int count_read;
 static int count_delete;
+static uint64_t * latency_create;
+static uint64_t * latency_stat;
+static uint64_t * latency_read;
+static uint64_t * latency_delete;
 
 /* This structure describes the processing status for stonewalling */
 typedef struct{
@@ -446,15 +450,27 @@ void create_remove_items_helper(const int dirs, const int create, const char *pa
     for (uint64_t i = progress->items_start; i < progress->items_per_dir ; ++i) {
         if (!dirs) {
             if (create) {
+                struct timespec start, end;
                 if (get_tail_latency){
-                    count_create ++;
+                    clock_gettime(CLOCK_MONOTONIC, &start); 
                 }
                 create_file (path, itemNum + i);
-            } else {
                 if (get_tail_latency){
-                    count_delete ++;
+                    clock_gettime(CLOCK_MONOTONIC, &end); 
+                    latency_create[count_create] = 1000000000 * (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec);
+                    count_create ++;
+                }
+            } else {
+                struct timespec start, end;
+                if (get_tail_latency){
+                    clock_gettime(CLOCK_MONOTONIC, &start); 
                 }
                 remove_file (path, itemNum + i);
+                if (get_tail_latency){
+                    clock_gettime(CLOCK_MONOTONIC, &end); 
+                    latency_delete[count_delete] = 1000000000 * (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec);
+                    count_delete ++;
+                }
             }
         } else {
             create_remove_dirs (path, create, itemNum + i);
@@ -652,11 +668,17 @@ void mdtest_stat(const int random, const int dirs, const long dir_iter, const ch
 
         /* below temp used to be hiername */
         VERBOSE(3,5,"mdtest_stat %4s: %s", (dirs ? "dir" : "file"), item);
+        struct timespec start, end;
+        if (get_tail_latency){
+            clock_gettime(CLOCK_MONOTONIC, &start); 
+        }
         if (-1 == backend->stat (item, &buf, backend_options)) {
             FAIL("unable to stat %s %s", dirs ? "directory" : "file", item);
         }
         if (get_tail_latency){
-            count_stat++;
+            clock_gettime(CLOCK_MONOTONIC, &end); 
+            latency_stat[count_stat] = 1000000000 * (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec);
+            count_stat ++;
         }
     }
 }
@@ -744,8 +766,9 @@ void mdtest_read(int random, int dirs, const long dir_iter, char *path) {
         VERBOSE(3,5,"mdtest_read file: %s", item);
 
         /* open file for reading */
+        struct timespec start, end;
         if (get_tail_latency){
-            count_read++;
+            clock_gettime(CLOCK_MONOTONIC, &start); 
         }
         aiori_fh = backend->open (item, O_RDONLY, backend_options);
         if (NULL == aiori_fh) {
@@ -768,6 +791,12 @@ void mdtest_read(int random, int dirs, const long dir_iter, char *path) {
 
         /* close file */
         backend->close (aiori_fh, backend_options);
+        if (get_tail_latency){
+            clock_gettime(CLOCK_MONOTONIC, &end); 
+            latency_read[count_read] = 1000000000 * (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec);
+            count_read ++;
+        }
+
     }
     if(read_bytes){
       free(read_buffer);
@@ -2283,6 +2312,13 @@ mdtest_results_t * mdtest_run(int argc, char **argv, MPI_Comm world_com, FILE * 
 
     MPI_Comm_group(testComm, &worldgroup);
 
+    if (get_tail_latency){
+        latency_create = (uint64_t *)malloc(sizeof(uint64_t)*items);
+        latency_stat = (uint64_t *)malloc(sizeof(uint64_t)*items);
+        latency_read = (uint64_t *)malloc(sizeof(uint64_t)*items);
+        latency_delete = (uint64_t *)malloc(sizeof(uint64_t)*items);
+    }
+
     /* Run the tests */
     for (i = first; i <= last && i <= size; i += stride) {
         range.last = i - 1;
@@ -2330,6 +2366,16 @@ mdtest_results_t * mdtest_run(int argc, char **argv, MPI_Comm world_com, FILE * 
         printf("count_stat : %d\n", count_stat);
         printf("count_read : %d\n", count_read);
         printf("count_delete : %d\n", count_delete);
+
+        printf("latency_create[65] : %d\n", latency_create[65]);
+        printf("latency_stat[65] : %d\n", latency_stat[65]);
+        printf("latency_read[65] : %d\n", latency_read[65]);
+        printf("latency_delete[65] : %d\n", latency_delete[65]);
+
+        free(latency_create);
+        free(latency_stat);
+        free(latency_read);
+        free(latency_delete);
     }
 
     if (created_root_dir && remove_only && backend->rmdir(testdirpath, backend_options) != 0) {
