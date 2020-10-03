@@ -1966,6 +1966,14 @@ void mdtest_init_args(){
 #endif /* HAVE_LUSTRE_LUSTREAPI */
 }
 
+int uint64_t_cmp(const void * a, const void * b){
+    uint64_t ad = *(uint64_t*)a;
+    uint64_t bd = *(uint64_t*)b;
+    if (ad < bd) return -1;
+    if (ad > bd) return 1;
+    return 0;
+}
+
 mdtest_results_t * mdtest_run(int argc, char **argv, MPI_Comm world_com, FILE * world_out) {
     testComm = world_com;
     out_logfile = world_out;
@@ -2372,10 +2380,77 @@ mdtest_results_t * mdtest_run(int argc, char **argv, MPI_Comm world_com, FILE * 
         printf("latency_read[65] : %d\n", latency_read[65]);
         printf("latency_delete[65] : %d\n", latency_delete[65]);
 
+        uint64_t all_items_num = items * size;
+        uint64_t * all_latency_create = NULL;
+        uint64_t * all_latency_stat = NULL;
+        uint64_t * all_latency_read = NULL;
+        uint64_t * all_latency_delete = NULL;
+
+        if (rank == 0){
+            all_latency_create = (uint64_t *)malloc(sizeof(uint64_t) * all_items_num);
+            all_latency_stat = (uint64_t *)malloc(sizeof(uint64_t) * all_items_num);
+            all_latency_read = (uint64_t *)malloc(sizeof(uint64_t) * all_items_num);
+            all_latency_delete = (uint64_t *)malloc(sizeof(uint64_t) * all_items_num);
+        }
+
+        // printf("rank : %d\n", rank);
+        int ret;
+        ret = MPI_Gather(latency_create, count_create, MPI_UINT64_T, all_latency_create, count_create, MPI_UINT64_T, 0, testComm);
+        ret = MPI_Gather(latency_stat, count_stat, MPI_UINT64_T, all_latency_stat, count_stat, MPI_UINT64_T, 0, testComm);
+        ret = MPI_Gather(latency_read, count_read, MPI_UINT64_T, all_latency_read, count_read, MPI_UINT64_T, 0, testComm);
+        ret = MPI_Gather(latency_delete, count_delete, MPI_UINT64_T, all_latency_delete, count_delete, MPI_UINT64_T, 0, testComm);
+
+        if (rank == 0){
+            /*
+            printf("rank 0 latency_create[65] : %d\n", all_latency_create[65]);
+            printf("rank 0 latency_stat[65] : %d\n", all_latency_stat[65]);
+            printf("rank 0 latency_read[65] : %d\n", all_latency_read[65]);
+            printf("rank 0 latency_delete[65] : %d\n", all_latency_delete[65]);
+            printf("rank 1 latency_create[65] : %d\n", all_latency_create[count_create + 65]);
+            printf("rank 1 latency_stat[65] : %d\n", all_latency_stat[count_stat + 65]);
+            printf("rank 1 latency_read[65] : %d\n", all_latency_read[count_read + 65]);
+            printf("rank 1 latency_delete[65] : %d\n", all_latency_delete[count_delete + 65]);
+            */
+            qsort(all_latency_create, all_items_num, sizeof(uint64_t), uint64_t_cmp);
+            qsort(all_latency_stat, all_items_num, sizeof(uint64_t), uint64_t_cmp);
+            qsort(all_latency_read, all_items_num, sizeof(uint64_t), uint64_t_cmp);
+            qsort(all_latency_delete, all_items_num, sizeof(uint64_t), uint64_t_cmp);
+            /*
+            printf("all_latency_create[0] : %d\n", all_latency_create[0]);
+            printf("all_latency_create[1] : %d\n", all_latency_create[1]);
+            printf("all_latency_create[all_items_num-2] : %d\n", all_latency_create[all_items_num-2]);
+            printf("all_latency_create[all_items_num-1] : %d\n", all_latency_create[all_items_num-1]);
+            */
+            double ps[18] = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99, 0.995, 0.999, 0.9995, 0.9999, 0.99995, 0.99999, 0.999999};
+            uint64_t * alls[4] = {all_latency_create, all_latency_stat, all_latency_read, all_latency_delete};
+            char * opstrs[4] = {"create", "stat", "read","delete"};
+            printf("-----------------Tail Latency-----------------\n");
+            printf("op,p,latency(ns)\n");
+            for (int op = 0; op < 4; op++){
+                for (int i = 0; i < 18; i++){
+                    printf("%s,%f,%llu\n", opstrs[op], ps[i], alls[op][(uint64_t)(ps[i]*all_items_num)]);
+                }
+                for (int i = 0; i < 10; i++){
+                    printf("%s,min%d,%llu\n",opstrs[op], i, alls[op][i]);
+                }
+                for (int i = 0; i < 10; i++){
+                    printf("%s,max%d,%llu\n", opstrs[op], i, alls[op][all_items_num-1-i]);
+                }
+            }
+            printf("-----------------Tail Latency-----------------\n");
+
+        }
+
         free(latency_create);
         free(latency_stat);
         free(latency_read);
         free(latency_delete);
+        if(rank == 0){
+            free(all_latency_create);
+            free(all_latency_stat);
+            free(all_latency_read);
+            free(all_latency_delete);
+        }
     }
 
     if (created_root_dir && remove_only && backend->rmdir(testdirpath, backend_options) != 0) {
