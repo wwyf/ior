@@ -2066,7 +2066,7 @@ mdtest_results_t * mdtest_run(int argc, char **argv, MPI_Comm world_com, FILE * 
 
     free(global_options->modules);
     free(global_options);
-    printf("wyf: get_tail_latency : %d\n", get_tail_latency);
+    // printf("wyf: get_tail_latency : %d\n", get_tail_latency);
 
     MPI_Comm_rank(testComm, &rank);
     MPI_Comm_size(testComm, &size);
@@ -2356,7 +2356,7 @@ mdtest_results_t * mdtest_run(int argc, char **argv, MPI_Comm world_com, FILE * 
 
         for (j = 0; j < iterations; j++) {
             // keep track of the current status for stonewalling
-            printf("wyf test tail latency version !\n");
+            // printf("wyf test tail latency version !\n");
             mdtest_iteration(i, j, testgroup, & summary_table[j]);
         }
         if (print_rate_and_time){
@@ -2370,15 +2370,15 @@ mdtest_results_t * mdtest_run(int argc, char **argv, MPI_Comm world_com, FILE * 
         }
     }
     if (get_tail_latency){
-        printf("count_create : %d\n", count_create);
-        printf("count_stat : %d\n", count_stat);
-        printf("count_read : %d\n", count_read);
-        printf("count_delete : %d\n", count_delete);
+        // printf("count_create : %d\n", count_create);
+        // printf("count_stat : %d\n", count_stat);
+        // printf("count_read : %d\n", count_read);
+        // printf("count_delete : %d\n", count_delete);
 
-        printf("latency_create[65] : %d\n", latency_create[65]);
-        printf("latency_stat[65] : %d\n", latency_stat[65]);
-        printf("latency_read[65] : %d\n", latency_read[65]);
-        printf("latency_delete[65] : %d\n", latency_delete[65]);
+        // printf("latency_create[65] : %d\n", latency_create[65]);
+        // printf("latency_stat[65] : %d\n", latency_stat[65]);
+        // printf("latency_read[65] : %d\n", latency_read[65]);
+        // printf("latency_delete[65] : %d\n", latency_delete[65]);
 
         uint64_t all_items_num = items * size;
         uint64_t * all_latency_create = NULL;
