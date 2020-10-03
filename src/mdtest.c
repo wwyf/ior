@@ -169,6 +169,12 @@ static void * backend_options;
 static aiori_xfer_hint_t hints;
 static char * api = NULL;
 
+static int get_tail_latency;
+static int count_create;
+static int count_stat;
+static int count_read;
+static int count_delete;
+
 /* This structure describes the processing status for stonewalling */
 typedef struct{
   double start_time;
@@ -440,8 +446,14 @@ void create_remove_items_helper(const int dirs, const int create, const char *pa
     for (uint64_t i = progress->items_start; i < progress->items_per_dir ; ++i) {
         if (!dirs) {
             if (create) {
+                if (get_tail_latency){
+                    count_create ++;
+                }
                 create_file (path, itemNum + i);
             } else {
+                if (get_tail_latency){
+                    count_delete ++;
+                }
                 remove_file (path, itemNum + i);
             }
         } else {
@@ -643,6 +655,9 @@ void mdtest_stat(const int random, const int dirs, const long dir_iter, const ch
         if (-1 == backend->stat (item, &buf, backend_options)) {
             FAIL("unable to stat %s %s", dirs ? "directory" : "file", item);
         }
+        if (get_tail_latency){
+            count_stat++;
+        }
     }
 }
 
@@ -729,6 +744,9 @@ void mdtest_read(int random, int dirs, const long dir_iter, char *path) {
         VERBOSE(3,5,"mdtest_read file: %s", item);
 
         /* open file for reading */
+        if (get_tail_latency){
+            count_read++;
+        }
         aiori_fh = backend->open (item, O_RDONLY, backend_options);
         if (NULL == aiori_fh) {
             FAIL("unable to open file %s", item);
@@ -1913,6 +1931,7 @@ void mdtest_init_args(){
    path_count = 0;
    nstride = 0;
    make_node = 0;
+   get_tail_latency = 0;
 #ifdef HAVE_LUSTRE_LUSTREAPI
    global_dir_layout = 0;
 #endif /* HAVE_LUSTRE_LUSTREAPI */
@@ -1996,6 +2015,7 @@ mdtest_results_t * mdtest_run(int argc, char **argv, MPI_Comm world_com, FILE * 
       {'z', NULL,        "depth of hierarchical directory structure", OPTION_OPTIONAL_ARGUMENT, 'd', & depth},
       {'Z', NULL,        "print time instead of rate", OPTION_FLAG, 'd', & print_time},
       {0, "warningAsErrors",        "Any warning should lead to an error.", OPTION_FLAG, 'd', & aiori_warning_as_errors},
+      {0, "tail-latency",        "Get tail latency.", OPTION_FLAG, 'd', & get_tail_latency},
       LAST_OPTION
     };
     options_all_t * global_options = airoi_create_all_module_options(options);
@@ -2009,6 +2029,7 @@ mdtest_results_t * mdtest_run(int argc, char **argv, MPI_Comm world_com, FILE * 
 
     free(global_options->modules);
     free(global_options);
+    printf("wyf: get_tail_latency : %d\n", get_tail_latency);
 
     MPI_Comm_rank(testComm, &rank);
     MPI_Comm_size(testComm, &size);
@@ -2303,6 +2324,12 @@ mdtest_results_t * mdtest_run(int argc, char **argv, MPI_Comm world_com, FILE * 
         if (i == 1 && stride > 1) {
             i = 0;
         }
+    }
+    if (get_tail_latency){
+        printf("count_create : %d\n", count_create);
+        printf("count_stat : %d\n", count_stat);
+        printf("count_read : %d\n", count_read);
+        printf("count_delete : %d\n", count_delete);
     }
 
     if (created_root_dir && remove_only && backend->rmdir(testdirpath, backend_options) != 0) {

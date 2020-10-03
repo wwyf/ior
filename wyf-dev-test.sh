@@ -18,7 +18,8 @@ make check
 make install
 
 
-mpirun -n 2 ./test-install/bin/mdtest -I 1000 -L -u -F -P -d ./test-bench
+mpirun -n 2 ./test-install/bin/mdtest --tail-latency -I 1000 -L -u -F -P -d ./test-bench
+#mpirun -n 2 ./test-install/bin/mdtest -I 1000 -L -u -F -C -P -d ./test-bench
 
 
 make distclean
